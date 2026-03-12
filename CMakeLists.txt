@@ -1,0 +1,205 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(
+  OpenInfer
+  VERSION 0.1.0
+  DESCRIPTION "Modern C++20 Deep Learning Inference Framework"
+  LANGUAGES CXX CUDA
+)
+
+# ============================================================================
+# Build Options
+# ============================================================================
+# Set default build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build (Debug or Release)" FORCE)
+  message(STATUS "Build type not specified, defaulting to Release")
+endif()
+
+option(OPEN_BUILD_TESTS "Build unit tests" OFF)
+option(OPEN_BUILD_EXAMPLES "Build examples" ON)
+option(OPEN_BUILD_CUDA "Build with CUDA support" ON)  # Default ON for CUDA
+option(OPEN_BUILD_SHARED "Build shared libraries" OFF)
+option(OPEN_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(OPEN_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(OPEN_USE_EIGEN "Use Eigen library for CPU operations" OFF)  # Default OFF
+
+# ============================================================================
+# C++ Standard and Compiler Requirements
+# ============================================================================
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+# Export compile commands for clangd/IDE
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ============================================================================
+# Output Directories
+# ============================================================================
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+# ============================================================================
+# Compiler Flags
+# ============================================================================
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wconversion
+    -Wshadow
+    -Wnon-virtual-dtor
+    -Wold-style-cast
+    -Wcast-align
+    -Wunused
+    -Woverloaded-virtual
+    -Wformat=2
+  )
+
+  # Release optimizations
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-O3 -march=native -DNDEBUG)
+  endif()
+
+  # Debug symbols
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_options(-g -O0)
+  endif()
+endif()
+
+# AddressSanitizer
+if(OPEN_ENABLE_ASAN)
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
+endif()
+
+# UndefinedBehaviorSanitizer
+if(OPEN_ENABLE_UBSAN)
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=undefined)
+endif()
+
+# ============================================================================
+# CUDA Configuration
+# ============================================================================
+if(OPEN_BUILD_CUDA)
+  enable_language(CUDA)
+  find_package(CUDAToolkit REQUIRED)
+
+  # CUDA architectures (adjust based on your GPU)
+  # Common architectures:
+  # - 70: V100
+  # - 75: T4
+  # - 80: A100
+  # - 86: RTX 30xx
+  # - 89: RTX 40xx
+  set(CMAKE_CUDA_ARCHITECTURES "75;80;86" CACHE STRING "CUDA architectures")
+
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --extended-lambda")
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -use_fast_math")
+
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -G -g")
+  endif()
+
+  message(STATUS "CUDA Enabled: ${CUDAToolkit_VERSION}")
+  message(STATUS "CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
+# ============================================================================
+# Find Dependencies
+# ============================================================================
+
+# Eigen3 (for linear algebra)
+if(OPEN_USE_EIGEN)
+  find_package(Eigen3 REQUIRED NO_MODULE)
+  message(STATUS "Eigen3 version: ${Eigen3_VERSION}")
+  add_compile_definitions(OPEN_USE_EIGEN)
+else()
+  message(STATUS "Eigen3 disabled")
+endif()
+
+# Google Test (for unit tests)
+if(OPEN_BUILD_TESTS)
+  find_package(GTest REQUIRED)
+  include(GoogleTest)
+  enable_testing()
+endif()
+
+# Google Logging (glog)
+find_package(glog REQUIRED)
+
+# Threads
+find_package(Threads REQUIRED)
+
+# ============================================================================
+# Include Directories
+# ============================================================================
+include_directories(${PROJECT_SOURCE_DIR}/include)
+
+# ============================================================================
+# Subdirectories
+# ============================================================================
+add_subdirectory(src)
+
+if(OPEN_BUILD_TESTS)
+  add_subdirectory(tests)
+endif()
+
+# Demo executable
+add_subdirectory(demo)
+
+# Web server (currently disabled - work in progress)
+add_subdirectory(web)
+
+# Examples directory removed as per user request
+# if(OPEN_BUILD_EXAMPLES)
+#   add_subdirectory(examples)
+# endif()
+
+# ============================================================================
+# Installation
+# ============================================================================
+include(GNUInstallDirs)
+
+# ============================================================================
+# Uninstall target
+# ============================================================================
+if(NOT TARGET uninstall)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+    IMMEDIATE @ONLY)
+
+  add_custom_target(uninstall
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
+    COMMENT "Uninstalling OpenInfer..."
+  )
+endif()
+
+# ============================================================================
+# Summary
+# ============================================================================
+message(STATUS "")
+message(STATUS "========================================")
+message(STATUS "  OpenInfer Configuration Summary")
+message(STATUS "========================================")
+message(STATUS "  Version: ${PROJECT_VERSION}")
+message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "  C++ Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  Build Tests: ${OPEN_BUILD_TESTS}")
+message(STATUS "  Build Examples: ${OPEN_BUILD_EXAMPLES}")
+message(STATUS "  Build CUDA: ${OPEN_BUILD_CUDA}")
+message(STATUS "  Use Eigen: ${OPEN_USE_EIGEN}")
+message(STATUS "  Build Shared: ${OPEN_BUILD_SHARED}")
+message(STATUS "  Enable ASAN: ${OPEN_ENABLE_ASAN}")
+message(STATUS "  Enable UBSAN: ${OPEN_ENABLE_UBSAN}")
+message(STATUS "========================================")
+message(STATUS "")
